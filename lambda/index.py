@@ -1,4 +1,5 @@
-# lambda/index.py
+# simplechat/lambda/index.py
+
 import os
 import json
 import requests
@@ -7,8 +8,8 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# ここで “バックエンドのモデル呼び出し先” を指定
-# （もし同じプロジェクト内にモデル実装があるならパスを合わせてください）
+# ここにあなたのモデルサーバー（または別の FastAPI）の URL を指定
+# Colab 上で同一フォルダに立てたモデル用 FastAPI を呼ぶなら "http://localhost:9000/model" など
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:9000/model")
 
 class ChatRequest(BaseModel):
@@ -23,20 +24,8 @@ class ChatResponse(BaseModel):
 
 @app.post("/chat", response_model=ChatResponse)
 def chat_endpoint(req: ChatRequest):
-    """
-    POST /chat
-    {
-      "message": "...",
-      "conversationHistory": [
-         {"role":"user","content":"..."},
-         {"role":"assistant","content":"..."},
-         ...
-      ]
-    }
-    を受け取って、別の FastAPI モデルサーバーに転送し、
-    返ってきた JSON をそのままクライアントに返します。
-    """
     try:
+        # 受け取ったメッセージと履歴をそのままバックエンドに転送
         payload = {
             "message": req.message,
             "conversationHistory": req.conversationHistory
@@ -50,10 +39,10 @@ def chat_endpoint(req: ChatRequest):
             conversationHistory=data.get("conversationHistory")
         )
     except Exception as e:
+        # エラーは 500 で返す
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    # Colab 上で直接起動するとき
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("index:app", host="0.0.0.0", port=port, reload=True)
