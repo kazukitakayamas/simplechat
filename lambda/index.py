@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 # bedrock_client = None
 # MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
 
-FASTAPI_ENDPOINT = os.environ.get("2vt8GU9hfEYfTaeJAsHxi6NbLWL_6Tr8gUZGbTcr7GiKFBgza")
+FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT")
 if not FASTAPI_ENDPOINT:
     raise RuntimeError("FASTAPI_ENDPOINT environment variable is not set")  # :contentReference[oaicite:3]{index=3}
 
