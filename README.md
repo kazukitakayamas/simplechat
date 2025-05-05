@@ -46,22 +46,27 @@ git clone https://github.com/keisskaws/simplechat
 cd simplechat
 ```
 
-### 2. CDK プロジェクトの依存関係 && フロントエンドのビルド
+### 2. FAST APIのURLリンクを環境変数に渡す
+```
+export FASTAPI_ENDPOINT="YOUR FAST API Link"
+```
+
+### 3. CDK プロジェクトの依存関係 && フロントエンドのビルド
 ```
 npm install
 ```
 
-### 3. AWS アカウントのブートストラップ（初回のみ）
+### 4. AWS アカウントのブートストラップ（初回のみ）
 ```
 npx cdk bootstrap
 ```
 
-### 4. CDK スタックのデプロイ
+### 5. CDK スタックのデプロイ
 ```
 npx cdk deploy
 ```
 
-### 5. アプリケーションへのアクセス
+### 6. アプリケーションへのアクセス
 デプロイ出力に表示された CloudFront URL にアクセスしてアプリケーションを使用します。
 
 使用方法
