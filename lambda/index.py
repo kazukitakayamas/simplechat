@@ -1,56 +1,70 @@
-
 # lambda/index.py
+
 import json
 import os
-import requests                           # ★ 追加: HTTP リクエスト用
-from botocore.exceptions import ClientError
+import requests
+import re
 
-# Bedrock 関連をすべて削除
-# bedrock_client = None
-# MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
-
+# FastAPI のエンドポイント URL を環境変数から取得
+# 例: FASTAPI_ENDPOINT = "https://abcd1234.ngrok.io"
 FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT")
 if not FASTAPI_ENDPOINT:
-    raise RuntimeError("FASTAPI_ENDPOINT environment variable is not set")  # :contentReference[oaicite:3]{index=3}
+    raise RuntimeError("環境変数 FASTAPI_ENDPOINT が設定されていません")
 
 def lambda_handler(event, context):
     try:
         print("Received event:", json.dumps(event))
 
-        # Cognito 認証情報の取得（任意）
+        # Cognito 認証情報があれば取得
         user_info = None
         if 'requestContext' in event and 'authorizer' in event['requestContext']:
-            user_info = event['requestContext']['authorizer']['claims']
-            print(f"Authenticated user: {user_info.get('email') or user_info.get('cognito:username')}")
+            claims = event['requestContext']['authorizer']['claims']
+            user_info = claims.get('email') or claims.get('cognito:username')
+            print(f"Authenticated user: {user_info}")
 
+        # リクエストボディの解析
         body = json.loads(event.get('body', '{}'))
-        message = body.get('message')
+        message = body.get('message', '')
         conversation_history = body.get('conversationHistory', [])
 
-        # FastAPI に渡すペイロード
-        payload = {
-            "message": message,
-            "conversationHistory": conversation_history
+        print("Processing message:", message)
+
+        # Lambda 内での会話履歴保持用
+        messages = conversation_history.copy()
+        messages.append({
+            "role": "user",
+            "content": message
+        })
+
+        # FastAPI 側 /generate エンドポイントに渡すペイロード
+        # SimpleGenerationRequest を想定
+        fastapi_payload = {
+            "prompt": message,
+            "max_new_tokens": body.get('max_new_tokens', 512),
+            "do_sample":        body.get('do_sample', True),
+            "temperature":      body.get('temperature', 0.7),
+            "top_p":            body.get('top_p', 0.9),
         }
 
-        print("Calling FastAPI endpoint:", FASTAPI_ENDPOINT)
-        print("Payload:", json.dumps(payload))
-
-        # ★ FastAPI サーバーへ POST
-        response = requests.post(
-            FASTAPI_ENDPOINT,
-            json=payload,
-            headers={"Content-Type": "application/json"}
+        print("Calling FastAPI /generate with payload:", fastapi_payload)
+        resp = requests.post(
+            f"{FASTAPI_ENDPOINT.rstrip('/')}/generate",
+            json=fastapi_payload,
+            timeout=30
         )
-        response.raise_for_status()  # HTTP エラー時に例外発生 :contentReference[oaicite:4]{index=4}
+        resp.raise_for_status()
 
-        result = response.json()     # JSON レスポンスをパース
-        print("FastAPI response:", json.dumps(result))
+        gen = resp.json()
+        assistant_response = gen.get("generated_text", "").strip()
+        print("FastAPI response:", assistant_response)
 
-        # FastAPI 側で返す JSON フォーマットを想定
-        assistant_response = result.get("response")
-        conversation_history = result.get("conversationHistory", conversation_history)
+        # 会話履歴にアシスタント応答を追加
+        messages.append({
+            "role": "assistant",
+            "content": assistant_response
+        })
 
+        # 成功時レスポンス
         return {
             "statusCode": 200,
             "headers": {
@@ -62,12 +76,12 @@ def lambda_handler(event, context):
             "body": json.dumps({
                 "success": True,
                 "response": assistant_response,
-                "conversationHistory": conversation_history
+                "conversationHistory": messages
             })
         }
 
     except Exception as error:
-        print("Error:", str(error))
+        print("Error in lambda_handler:", str(error))
         return {
             "statusCode": 500,
             "headers": {
