@@ -42,6 +42,13 @@ Amazon Bedrock を使用したチャットボットアプリケーションで�
 ### 1. リポジトリのクローン
 
 ```
+mkdir /tmp/testdir
+cd /tmp/testdir/
+export npm_config_cache=/tmp/npm-cache
+export npm_config_prefix=/tmp/npm-global
+sudo npm install -g aws-cdk@latest
+
+
 git clone https://github.com/kazukitakayamas/simplechat.git
 cd simplechat
 ```
@@ -63,6 +70,10 @@ npx cdk bootstrap
 
 ### 5. CDK スタックのデプロイ
 ```
+npm install -g aws-cdk@latest
+cdk --version
+cdk deploy
+
 npx cdk deploy
 ```
 
