@@ -6,7 +6,7 @@ import requests
 from requests.exceptions import RequestException
 
 # APIのベースURL
-API_BASE_URL = "https://2c41-34-87-69-11.ngrok-free.app"
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://2c41-34-87-69-11.ngrok-free.app")
 
 # モデルID（元のコードと互換性のために保持）
 MODEL_ID = os.environ.get("MODEL_ID", "local-model")
