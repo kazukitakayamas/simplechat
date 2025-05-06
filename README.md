@@ -39,7 +39,7 @@ Amazon Bedrock を使用したチャットボットアプリケーションで�
 * アクセス許可がない状態で環境をセットアップした場合、チャットボットは500エラーを返します。
 
 
-### 1. リポジトリのクローン
+### 1. 作業ディレクトリ作成
 
 ```
 mkdir /tmp/testdir
@@ -47,34 +47,34 @@ cd /tmp/testdir/
 export npm_config_cache=/tmp/npm-cache
 export npm_config_prefix=/tmp/npm-global
 sudo npm install -g aws-cdk@latest
+```
 
+### 2. リポジトリのクローン
 
+```
 git clone https://github.com/kazukitakayamas/simplechat.git
 cd simplechat
 ```
 
-### 2. FAST APIのURLリンクを環境変数に渡す
+### 3. FAST APIのURLリンクを環境変数に渡す
 ```
 export FASTAPI_ENDPOINT="YOUR FAST API Link"
 ```
 
-### 3. CDK プロジェクトの依存関係 && フロントエンドのビルド
+### 4. CDK プロジェクトの依存関係 && フロントエンドのビルド
 ```
 npm install
 ```
 
-### 4. AWS アカウントのブートストラップ（初回のみ）
+### 5. AWS アカウントのブートストラップ（初回のみ）
 ```
 npx cdk bootstrap
 ```
 
-### 5. CDK スタックのデプロイ
+### 6. CDK スタックのデプロイ
 ```
-npm install -g aws-cdk@latest
-cdk --version
 cdk deploy
 
-npx cdk deploy
 ```
 
 ### 6. アプリケーションへのアクセス
