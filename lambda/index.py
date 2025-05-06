@@ -1,87 +1,158 @@
-import os
+# lambda/index.py
 import json
+import os
+import re
 import requests
+from requests.exceptions import RequestException
 
-# *** FastAPI エンドポイントを呼び出す新しい実装 ***（以前の Bedrock API 実装からの切り替え）
-FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT", "")
-if FASTAPI_ENDPOINT is None or FASTAPI_ENDPOINT == "":
-    # （注：実際の Lambda では FASTAPI_ENDPOINT 環境変数が設定されている前提）
-    FASTAPI_ENDPOINT = ""
+# APIのベースURL
+API_BASE_URL = "https://2c41-34-87-69-11.ngrok-free.app"
+
+# モデルID（元のコードと互換性のために保持）
+MODEL_ID = os.environ.get("MODEL_ID", "local-model")
 
 def lambda_handler(event, context):
-    # イベントからユーザー入力メッセージと過去の会話履歴を取得
-    message = event.get("message", "")
-    conversation_history = event.get("conversationHistory", [])
-    # conversation_history をリスト形式に正規化
-    if conversation_history is None:
-        conversation_history = []
-    elif isinstance(conversation_history, str):
-        try:
-            # JSON 文字列の場合はパース
-            conversation_history = json.loads(conversation_history)
-            if isinstance(conversation_history, dict):
-                conversation_history = [conversation_history]
-        except json.JSONDecodeError:
-            # ただの文字列の場合はリストに格納
-            conversation_history = [conversation_history]
-    elif not isinstance(conversation_history, list):
-        conversation_history = [conversation_history]
-    
-    # 新しいユーザー発話を会話履歴に追加
-    conversation_history.append(message)
-    
-    # モデルへの入力プロンプトを準備（最新のユーザー発話のみを使用）
-    prompt_text = message
-    # 変更点: 会話履歴はモデル入力に含めず、Lambda 内で管理 (FastAPI には最新のユーザー発話のみ送信)
-    
-    # FastAPI に送信するリクエストボディを構築（プロンプトと生成パラメータ）
-    payload = {
-        "prompt": prompt_text,
-        "temperature": 0.7,     # 生成の温度パラメータ（多様性制御）
-        "top_p": 0.9,           # 生成の top_p パラメータ
-        "max_new_tokens": 200,  # 生成する最大トークン数
-        "do_sample": True       # サンプリングを有効化（Trueでランダム性あり）
-    }
-    
-    # FastAPI の /generate エンドポイントURLを作成（環境変数のベースURLとパスを結合）
-    url = FASTAPI_ENDPOINT.rstrip("/") + "/generate"
     try:
-        # 変更点: requests.post を使用して FastAPI エンドポイントへ POST リクエスト送信
-        response = requests.post(url, json=payload, timeout=10)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        # 変更点: FastAPI が応答しない/ネットワークエラーの場合のエラーハンドリング
-        error_message = f"Error: Failed to connect to FastAPI endpoint. ({e})"
-        print(error_message)
-        return {
-            "response": error_message,
-            "conversationHistory": conversation_history
+        print("Received event:", json.dumps(event))
+        
+        # Cognitoで認証されたユーザー情報を取得
+        user_info = None
+        if 'requestContext' in event and 'authorizer' in event['requestContext']:
+            user_info = event['requestContext']['authorizer']['claims']
+            print(f"Authenticated user: {user_info.get('email') or user_info.get('cognito:username')}")
+        
+        # リクエストボディの解析
+        body = json.loads(event['body'])
+        message = body['message']
+        conversation_history = body.get('conversationHistory', [])
+        
+        print("Processing message:", message)
+        
+        # 会話履歴から最後のN個のメッセージを取得し、コンテキストを構築
+        # 最後のユーザーメッセージを含む会話履歴から適切なプロンプトを作成
+        prompt = format_prompt_from_history(conversation_history, message)
+        
+        # FastAPIサーバーへのリクエストペイロードを作成
+        request_payload = {
+            "prompt": prompt,
+            "max_new_tokens": 512,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "do_sample": True
         }
+        
+        print(f"Calling local LLM API at {API_BASE_URL}/generate")
+        
+        # FastAPIサーバーにリクエストを送信
+        response = requests.post(
+            f"{API_BASE_URL}/generate",
+            json=request_payload,
+            timeout=30  # タイムアウト設定
+        )
+        
+        # レスポンスが成功した場合
+        if response.status_code == 200:
+            response_data = response.json()
+            print("LLM API response:", json.dumps(response_data, default=str))
+            
+            # アシスタントの応答を取得
+            assistant_response = response_data.get('generated_text', '')
+            if not assistant_response:
+                raise Exception("No response content from the model")
+            
+            # アシスタントの応答を会話履歴に追加
+            messages = conversation_history.copy()
+            # ユーザーメッセージを追加
+            messages.append({
+                "role": "user",
+                "content": message
+            })
+            # アシスタントの応答を追加
+            messages.append({
+                "role": "assistant",
+                "content": assistant_response
+            })
+            
+            # 成功レスポンスの返却
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+                    "Access-Control-Allow-Methods": "OPTIONS,POST"
+                },
+                "body": json.dumps({
+                    "success": True,
+                    "response": assistant_response,
+                    "conversationHistory": messages
+                })
+            }
+        else:
+            # APIエラーの場合
+            error_msg = f"LLM API returned status code {response.status_code}: {response.text}"
+            print(error_msg)
+            raise Exception(error_msg)
+        
+    except RequestException as e:
+        error_msg = f"Request to LLM API failed: {str(e)}"
+        print(error_msg)
+        return create_error_response(500, error_msg)
+        
+    except Exception as error:
+        print("Error:", str(error))
+        return create_error_response(500, str(error))
+
+def format_prompt_from_history(conversation_history, new_message):
+    """
+    会話履歴と新しいメッセージからプロンプトを作成する
     
-    # FastAPI からの JSON 応答をパースし、生成テキストを抽出
-    try:
-        result = response.json()
-    except ValueError:
-        error_message = "Error: Invalid JSON response from FastAPI."
-        print(error_message)
-        return {
-            "response": error_message,
-            "conversationHistory": conversation_history
-        }
-    generated_text = result.get("generated_text")
-    if generated_text is None:
-        error_message = "Error: 'generated_text' not found in FastAPI response."
-        print(error_message)
-        return {
-            "response": error_message,
-            "conversationHistory": conversation_history
-        }
+    Args:
+        conversation_history (list): これまでの会話履歴
+        new_message (str): 新しいユーザーメッセージ
     
-    # 生成されたテキスト（アシスタントの応答）を会話履歴に追加
-    conversation_history.append(generated_text)
+    Returns:
+        str: フォーマットされたプロンプト
+    """
+    formatted_history = ""
     
-    # 応答テキストと更新された会話履歴を含む結果を返す
+    # 会話履歴がある場合、それをフォーマット
+    if conversation_history:
+        for msg in conversation_history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            
+            if role == "user":
+                formatted_history += f"ユーザー: {content}\n"
+            elif role == "assistant":
+                formatted_history += f"アシスタント: {content}\n"
+    
+    # 新しいメッセージを追加
+    formatted_history += f"ユーザー: {new_message}\nアシスタント: "
+    
+    return formatted_history
+
+def create_error_response(status_code, error_message):
+    """
+    エラーレスポンスを作成する
+    
+    Args:
+        status_code (int): HTTPステータスコード
+        error_message (str): エラーメッセージ
+    
+    Returns:
+        dict: エラーレスポンス
+    """
     return {
-        "response": generated_text,
-        "conversationHistory": conversation_history
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*", 
+            "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+            "Access-Control-Allow-Methods": "OPTIONS,POST"
+        },
+        "body": json.dumps({
+            "success": False,
+            "error": error_message
+        })
     }
